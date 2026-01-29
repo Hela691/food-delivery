@@ -6,7 +6,7 @@ pipeline {
     SONAR_HOST_URL = 'http://food-sonarqube:9000'
     SONAR_PROJECT_KEY = 'food-delivery'
     // Token SonarQube : mets-le dans Jenkins Credentials (Secret Text) et remplace l'id ci-dessous
-    SONAR_TOKEN = credentials('sonar-token')
+    SONAR_TOKEN = 'sqp_dde66c3ed60ce44d201c51abb6042d833ee816b8'
   }
 
   stages {
