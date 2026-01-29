@@ -28,7 +28,7 @@ pipeline {
           steps {
             sh '''
               docker run --rm -v "$PWD/backend:/app" -w /app node:18-alpine \
-                sh -lc "npm ci"
+                sh -lc "npm install"
             '''
           }
         }
@@ -36,7 +36,7 @@ pipeline {
           steps {
             sh '''
               docker run --rm -v "$PWD/frontend:/app" -w /app node:18-alpine \
-                sh -lc "npm ci"
+                sh -lc "npm install"
             '''
           }
         }
