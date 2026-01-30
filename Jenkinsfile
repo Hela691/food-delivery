@@ -26,12 +26,10 @@ pipeline {
       parallel {
         stage('Backend') {
           steps {
-           dir('backend') {
             sh '''
-              docker run --rm -v "$PWD:/app" -w /app node:18-alpine \
+              docker run --rm -v "$PWD/backend:/app" -w /app node:18-alpine \
                 sh -lc "npm install"
             '''
-           }
           }
         }
         stage('Frontend') {
