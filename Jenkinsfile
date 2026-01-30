@@ -15,7 +15,10 @@ pipeline {
         deleteDir()
         checkout scm
         script {
-          env.GIT_COMMIT_SHORT = sh(script: "git rev-parse --short HEAD", returnStdout: true).trim()
+          env.GIT_COMMIT_SHORT = sh(
+            script: "git rev-parse --short HEAD",
+            returnStdout: true
+          ).trim()
           echo "Commit = ${env.GIT_COMMIT_SHORT}"
         }
       }
@@ -29,7 +32,7 @@ pipeline {
           echo "GIT_BRANCH=$GIT_BRANCH"
           echo "git rev-parse --abbrev-ref HEAD =>"
           git rev-parse --abbrev-ref HEAD || true
-          echo "env | grep BRANCH/GIT =>"
+          echo "ENV (BRANCH/GIT):"
           env | sort | grep -E 'BRANCH|GIT_' || true
           echo "=================================="
         '''
@@ -42,8 +45,9 @@ pipeline {
           steps {
             sh '''
               set -e
-              WS="/var/jenkins_home/workspace/${JOB_NAME}/backend"
-              docker run --rm --volumes-from jenkins -w "$WS" node:18-alpine sh -lc "(npm ci || npm install)"
+              WS="${WORKSPACE}/backend"
+              docker run --rm -v "${WORKSPACE}:${WORKSPACE}" -w "$WS" \
+                node:18-alpine sh -lc "(npm ci || npm install)"
             '''
           }
         }
@@ -51,8 +55,9 @@ pipeline {
           steps {
             sh '''
               set -e
-              WS="/var/jenkins_home/workspace/${JOB_NAME}/frontend"
-              docker run --rm --volumes-from jenkins -w "$WS" node:18-alpine sh -lc "(npm ci || npm install)"
+              WS="${WORKSPACE}/frontend"
+              docker run --rm -v "${WORKSPACE}:${WORKSPACE}" -w "$WS" \
+                node:18-alpine sh -lc "(npm ci || npm install)"
             '''
           }
         }
@@ -65,21 +70,22 @@ pipeline {
           steps {
             sh '''
               set -e
-              WS="/var/jenkins_home/workspace/${JOB_NAME}/backend"
-              docker run --rm --volumes-from jenkins -w "$WS" node:18-alpine \
-                sh -lc "npm audit --audit-level=high --json > /var/jenkins_home/workspace/${JOB_NAME}/npm-audit-backend.json || true"
+              WS="${WORKSPACE}/backend"
+              docker run --rm -v "${WORKSPACE}:${WORKSPACE}" -w "$WS" \
+                node:18-alpine sh -lc \
+                "npm audit --audit-level=high --json > ${WORKSPACE}/npm-audit-backend.json || true"
             '''
             archiveArtifacts artifacts: 'npm-audit-backend.json', allowEmptyArchive: false
           }
         }
-
         stage('Frontend Audit') {
           steps {
             sh '''
               set -e
-              WS="/var/jenkins_home/workspace/${JOB_NAME}/frontend"
-              docker run --rm --volumes-from jenkins -w "$WS" node:18-alpine \
-                sh -lc "npm audit --audit-level=high --json > /var/jenkins_home/workspace/${JOB_NAME}/npm-audit-frontend.json || true"
+              WS="${WORKSPACE}/frontend"
+              docker run --rm -v "${WORKSPACE}:${WORKSPACE}" -w "$WS" \
+                node:18-alpine sh -lc \
+                "npm audit --audit-level=high --json > ${WORKSPACE}/npm-audit-frontend.json || true"
             '''
             archiveArtifacts artifacts: 'npm-audit-frontend.json', allowEmptyArchive: false
           }
@@ -90,7 +96,6 @@ pipeline {
     stage('🛡️ OWASP Dependency-Check') {
       steps {
         sh 'mkdir -p dependency-check'
-
         dependencyCheck additionalArguments: """
           --scan ${WORKSPACE}
           --exclude **/node_modules/**
@@ -100,7 +105,6 @@ pipeline {
           --prettyPrint
           --out ${WORKSPACE}/dependency-check
         """, odcInstallation: 'OWASP-DC'
-
         dependencyCheckPublisher pattern: '**/dependency-check-report.json'
         archiveArtifacts artifacts: 'dependency-check/*', allowEmptyArchive: true
       }
@@ -112,15 +116,14 @@ pipeline {
           sh '''
             docker run --rm \
               --network ${DOCKER_NET} \
-              --volumes-from jenkins \
-              -w /var/jenkins_home/workspace/${JOB_NAME} \
+              -v "${WORKSPACE}:${WORKSPACE}" \
+              -w "${WORKSPACE}" \
               sonarsource/sonar-scanner-cli \
               -Dsonar.host.url=${SONAR_HOST_URL} \
               -Dsonar.login=${SONAR_TOKEN} \
               -Dsonar.projectKey=${SONAR_PROJECT_KEY} \
               -Dsonar.sources=backend,frontend/src \
-              -Dsonar.exclusions=**/node_modules/**,**/dist/**,**/coverage/** \
-              -Dsonar.qualitygate.wait=false
+              -Dsonar.exclusions=**/node_modules/**,**/dist/**,**/coverage/**
           '''
         }
       }
@@ -162,25 +165,15 @@ pipeline {
       steps {
         sh '''
           set +e
-          mkdir -p "${WORKSPACE}/trivy-reports"
+          mkdir -p trivy-reports
 
-          docker run --rm \
-            -v /var/run/docker.sock:/var/run/docker.sock \
-            aquasec/trivy:latest image \
-            --severity HIGH,CRITICAL \
-            --format json \
-            ${IMAGE_NAME}-backend:${GIT_COMMIT_SHORT} \
-            > "${WORKSPACE}/trivy-reports/trivy-backend.json"
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+            aquasec/trivy:latest image --severity HIGH,CRITICAL --format json \
+            ${IMAGE_NAME}-backend:${GIT_COMMIT_SHORT} > trivy-reports/trivy-backend.json
 
-          docker run --rm \
-            -v /var/run/docker.sock:/var/run/docker.sock \
-            aquasec/trivy:latest image \
-            --severity HIGH,CRITICAL \
-            --format json \
-            ${IMAGE_NAME}-frontend:${GIT_COMMIT_SHORT} \
-            > "${WORKSPACE}/trivy-reports/trivy-frontend.json"
-
-          ls -la "${WORKSPACE}/trivy-reports" || true
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+            aquasec/trivy:latest image --severity HIGH,CRITICAL --format json \
+            ${IMAGE_NAME}-frontend:${GIT_COMMIT_SHORT} > trivy-reports/trivy-frontend.json
         '''
         archiveArtifacts artifacts: 'trivy-reports/*.json', allowEmptyArchive: false
       }
@@ -200,7 +193,6 @@ pipeline {
         )]) {
           sh '''
             set -e
-            echo "Pushing as DOCKER_USER=$DOCKER_USER"
             echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
 
             docker tag ${IMAGE_NAME}-backend:${GIT_COMMIT_SHORT}  $DOCKER_USER/${IMAGE_NAME}-backend:${GIT_COMMIT_SHORT}
@@ -211,7 +203,6 @@ pipeline {
 
             docker push $DOCKER_USER/${IMAGE_NAME}-backend:${GIT_COMMIT_SHORT}
             docker push $DOCKER_USER/${IMAGE_NAME}-frontend:${GIT_COMMIT_SHORT}
-
             docker push $DOCKER_USER/${IMAGE_NAME}-backend:latest
             docker push $DOCKER_USER/${IMAGE_NAME}-frontend:latest
           '''
@@ -235,15 +226,32 @@ pipeline {
         )]) {
           sh '''
             set -e
-            echo "Deploying as DOCKER_USER=$DOCKER_USER"
             echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
 
             export DOCKER_USER="$DOCKER_USER"
             export TAG=latest
 
-            docker-compose -f docker-compose.yml -f docker-compose.prod.yml pull
-            docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d --no-build
-            docker-compose -f docker-compose.yml -f docker-compose.prod.yml ps
+            docker run --rm \
+              -v /var/run/docker.sock:/var/run/docker.sock \
+              -v "${WORKSPACE}:/work" -w /work \
+              -e DOCKER_USER="$DOCKER_USER" \
+              -e TAG="$TAG" \
+              docker/compose:1.29.2 \
+              -f docker-compose.yml -f docker-compose.prod.yml pull
+
+            docker run --rm \
+              -v /var/run/docker.sock:/var/run/docker.sock \
+              -v "${WORKSPACE}:/work" -w /work \
+              -e DOCKER_USER="$DOCKER_USER" \
+              -e TAG="$TAG" \
+              docker/compose:1.29.2 \
+              -f docker-compose.yml -f docker-compose.prod.yml up -d --no-build
+
+            docker run --rm \
+              -v /var/run/docker.sock:/var/run/docker.sock \
+              -v "${WORKSPACE}:/work" -w /work \
+              docker/compose:1.29.2 \
+              -f docker-compose.yml -f docker-compose.prod.yml ps
           '''
         }
       }
