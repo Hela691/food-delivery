@@ -16,20 +16,17 @@ pipeline {
         checkout scm
         script {
           env.GIT_COMMIT_SHORT = sh(script: "git rev-parse --short HEAD", returnStdout: true).trim()
-          env.GIT_BRANCH_NAME  = sh(script: "git rev-parse --abbrev-ref HEAD", returnStdout: true).trim()
-          echo "Branch = ${env.GIT_BRANCH_NAME} | Commit = ${env.GIT_COMMIT_SHORT}"
+          echo "Commit = ${env.GIT_COMMIT_SHORT}"
         }
       }
     }
 
-    // ✅ AJOUTE CE STAGE ICI
     stage('🧾 Debug Branch') {
       steps {
         sh '''
           echo "========== DEBUG BRANCH =========="
           echo "BRANCH_NAME=$BRANCH_NAME"
           echo "GIT_BRANCH=$GIT_BRANCH"
-          echo "GIT_BRANCH_NAME(from script)=${GIT_BRANCH_NAME}"
           echo "git rev-parse --abbrev-ref HEAD =>"
           git rev-parse --abbrev-ref HEAD || true
           echo "env | grep BRANCH/GIT =>"
@@ -191,9 +188,8 @@ pipeline {
 
     stage('📤 Push to DockerHub') {
       when {
-        anyOf {
-          branch 'main'
-          branch 'master'
+        expression {
+          return env.GIT_BRANCH == 'origin/main' || env.GIT_BRANCH == 'origin/master'
         }
       }
       steps {
@@ -225,9 +221,8 @@ pipeline {
 
     stage('🏭 Deploy to Production') {
       when {
-        anyOf {
-          branch 'main'
-          branch 'master'
+        expression {
+          return env.GIT_BRANCH == 'origin/main' || env.GIT_BRANCH == 'origin/master'
         }
       }
       steps {
