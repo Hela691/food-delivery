@@ -22,6 +22,23 @@ pipeline {
       }
     }
 
+    // ✅ AJOUTE CE STAGE ICI
+    stage('🧾 Debug Branch') {
+      steps {
+        sh '''
+          echo "========== DEBUG BRANCH =========="
+          echo "BRANCH_NAME=$BRANCH_NAME"
+          echo "GIT_BRANCH=$GIT_BRANCH"
+          echo "GIT_BRANCH_NAME(from script)=${GIT_BRANCH_NAME}"
+          echo "git rev-parse --abbrev-ref HEAD =>"
+          git rev-parse --abbrev-ref HEAD || true
+          echo "env | grep BRANCH/GIT =>"
+          env | sort | grep -E 'BRANCH|GIT_' || true
+          echo "=================================="
+        '''
+      }
+    }
+
     stage('📦 Install Dependencies') {
       parallel {
         stage('Backend') {
