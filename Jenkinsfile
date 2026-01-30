@@ -181,6 +181,10 @@ pipeline {
           set -e
           mkdir -p trivy-reports
 
+          # Ensure empty files exist (avoid archive error)
+          echo "{}" > trivy-reports/trivy-backend.json
+          echo "{}" > trivy-reports/trivy-frontend.json
+
           # Scan Backend image (local)
           docker run --rm \
             -v /var/run/docker.sock:/var/run/docker.sock \
@@ -200,6 +204,9 @@ pipeline {
             --format json \
             --output /reports/trivy-frontend.json \
             ${IMAGE_NAME}-frontend:${GIT_COMMIT_SHORT} || true
+
+          echo "=== Trivy reports ==="
+          ls -la trivy-reports
         '''
         archiveArtifacts artifacts: 'trivy-reports/trivy-*.json', allowEmptyArchive: true
       }
