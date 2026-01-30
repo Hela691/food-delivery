@@ -75,6 +75,44 @@ pipeline {
       }
     }
 
+    stage('🛡️ Dependency Check') {
+      parallel {
+
+        stage('Backend Audit') {
+          steps {
+            sh '''
+              set -e
+              WS="/var/jenkins_home/workspace/${JOB_NAME}/backend"
+
+              docker run --rm \
+                --volumes-from jenkins \
+                -w "$WS" \
+                node:18-alpine \
+                sh -lc "npm audit --audit-level=high --json > /var/jenkins_home/workspace/${JOB_NAME}/npm-audit-backend.json || true"
+            '''
+            archiveArtifacts artifacts: 'npm-audit-backend.json', allowEmptyArchive: false
+          }
+        }
+
+        stage('Frontend Audit') {
+          steps {
+            sh '''
+              set -e
+              WS="/var/jenkins_home/workspace/${JOB_NAME}/frontend"
+
+              docker run --rm \
+                --volumes-from jenkins \
+                -w "$WS" \
+                node:18-alpine \
+                sh -lc "npm audit --audit-level=high --json > /var/jenkins_home/workspace/${JOB_NAME}/npm-audit-frontend.json || true"
+            '''
+            archiveArtifacts artifacts: 'npm-audit-frontend.json', allowEmptyArchive: false
+          }
+        }
+
+      }
+    }
+
     stage('🔐 SAST - SonarQube Analysis') {
       steps {
         withCredentials([string(credentialsId: 'sonar-token', variable: 'SONAR_TOKEN')]) {
