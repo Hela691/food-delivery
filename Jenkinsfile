@@ -33,7 +33,7 @@ pipeline {
                 --volumes-from jenkins \
                 -w "$WS" \
                 node:18-alpine \
-                sh -lc "ls -la && ls -la package.json && (npm ci || npm install)"
+                sh -lc "(npm ci || npm install)"
             '''
           }
         }
@@ -48,7 +48,7 @@ pipeline {
                 --volumes-from jenkins \
                 -w "$WS" \
                 node:18-alpine \
-                sh -lc "ls -la && ls -la package.json && (npm ci || npm install)"
+                sh -lc "(npm ci || npm install)"
             '''
           }
         }
@@ -137,18 +137,12 @@ pipeline {
       steps {
         withCredentials([string(credentialsId: 'sonar-token', variable: 'SONAR_TOKEN')]) {
           sh '''
-            echo "=== SonarQube Quality Gate status (soft gate) ==="
-
             curl -s -u "${SONAR_TOKEN}:" \
               "${SONAR_HOST_URL}/api/qualitygates/project_status?projectKey=${SONAR_PROJECT_KEY}" \
               | tee sonar-qg.json
 
             if grep -q '"status":"ERROR"' sonar-qg.json; then
-              echo ""
-              echo "⚠️ QUALITY GATE = FAILED (mais on ne bloque pas le pipeline)"
-              echo "➡️ Causes typiques : coverage=0%, vulnérabilités, hotspots non revus..."
-              echo "➡️ Voir dashboard Sonar : ${SONAR_HOST_URL}/dashboard?id=${SONAR_PROJECT_KEY}"
-              echo ""
+              echo "⚠️ QUALITY GATE = FAILED (soft gate)"
             else
               echo "✅ QUALITY GATE = OK"
             fi
@@ -171,7 +165,7 @@ pipeline {
       steps {
         sh '''
           set -e
-          mkdir -p trivy-reports
+          mkdir -p "${WORKSPACE}/trivy-reports"
 
           echo "=== Docker images (verify tags exist) ==="
           docker images | grep ${IMAGE_NAME} || true
@@ -179,7 +173,7 @@ pipeline {
           # Scan Backend image (local)
           docker run --rm \
             -v /var/run/docker.sock:/var/run/docker.sock \
-            -v "$(pwd)/trivy-reports:/reports" \
+            -v "${WORKSPACE}/trivy-reports:/reports" \
             aquasec/trivy:latest image \
             --severity HIGH,CRITICAL \
             --format json \
@@ -189,17 +183,20 @@ pipeline {
           # Scan Frontend image (local)
           docker run --rm \
             -v /var/run/docker.sock:/var/run/docker.sock \
-            -v "$(pwd)/trivy-reports:/reports" \
+            -v "${WORKSPACE}/trivy-reports:/reports" \
             aquasec/trivy:latest image \
             --severity HIGH,CRITICAL \
             --format json \
             --output /reports/trivy-frontend.json \
             ${IMAGE_NAME}-frontend:${GIT_COMMIT_SHORT} || true
 
-          echo "=== Trivy reports ==="
-          ls -la trivy-reports
+          echo "=== Trivy reports folder ==="
+          ls -la "${WORKSPACE}/trivy-reports" || true
+
+          echo "=== Find generated Trivy JSON ==="
+          find "${WORKSPACE}" -maxdepth 3 -type f -name "trivy-*.json" -print || true
         '''
-        archiveArtifacts artifacts: 'trivy-reports/*.json', allowEmptyArchive: true
+        archiveArtifacts artifacts: '**/trivy-reports/trivy-*.json', allowEmptyArchive: true
       }
     }
 
