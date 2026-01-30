@@ -45,7 +45,6 @@ pipeline {
 
     stage('🛡️ Dependency Check (npm audit)') {
       parallel {
-
         stage('Backend Audit') {
           steps {
             sh '''
@@ -69,7 +68,6 @@ pipeline {
             archiveArtifacts artifacts: 'npm-audit-frontend.json', allowEmptyArchive: false
           }
         }
-
       }
     }
 
@@ -145,46 +143,38 @@ pipeline {
         sh '''
           set +e
           mkdir -p "${WORKSPACE}/trivy-reports"
-          chmod -R 777 "${WORKSPACE}/trivy-reports"
-
-          echo "=== whoami / ids ==="
-          id || true
-          echo "WORKSPACE=${WORKSPACE}"
 
           echo "=== Docker images (verify tags exist) ==="
           docker images | grep ${IMAGE_NAME} || true
 
-          echo "=== Trivy backend scan ==="
+          echo "=== Trivy backend scan (stdout -> file) ==="
           docker run --rm \
-            --user "$(id -u):$(id -g)" \
             -v /var/run/docker.sock:/var/run/docker.sock \
-            -v "${WORKSPACE}/trivy-reports:/reports" \
             aquasec/trivy:latest image \
             --severity HIGH,CRITICAL \
             --format json \
-            --output /reports/trivy-backend.json \
-            ${IMAGE_NAME}-backend:${GIT_COMMIT_SHORT}
+            ${IMAGE_NAME}-backend:${GIT_COMMIT_SHORT} \
+            > "${WORKSPACE}/trivy-reports/trivy-backend.json"
           echo "Trivy backend exit code=$?"
 
-          echo "=== Trivy frontend scan ==="
+          echo "=== Trivy frontend scan (stdout -> file) ==="
           docker run --rm \
-            --user "$(id -u):$(id -g)" \
             -v /var/run/docker.sock:/var/run/docker.sock \
-            -v "${WORKSPACE}/trivy-reports:/reports" \
             aquasec/trivy:latest image \
             --severity HIGH,CRITICAL \
             --format json \
-            --output /reports/trivy-frontend.json \
-            ${IMAGE_NAME}-frontend:${GIT_COMMIT_SHORT}
+            ${IMAGE_NAME}-frontend:${GIT_COMMIT_SHORT} \
+            > "${WORKSPACE}/trivy-reports/trivy-frontend.json"
           echo "Trivy frontend exit code=$?"
 
           echo "=== Trivy reports folder ==="
           ls -la "${WORKSPACE}/trivy-reports" || true
 
-          echo "=== Find generated Trivy JSON ==="
-          find "${WORKSPACE}" -maxdepth 4 -type f -name "trivy-*.json" -print || true
+          echo "=== Show first 3 lines of reports ==="
+          head -n 3 "${WORKSPACE}/trivy-reports/trivy-backend.json" || true
+          head -n 3 "${WORKSPACE}/trivy-reports/trivy-frontend.json" || true
         '''
-        archiveArtifacts artifacts: 'trivy-reports/trivy-*.json', allowEmptyArchive: true
+        archiveArtifacts artifacts: 'trivy-reports/*.json', allowEmptyArchive: false
       }
     }
 
