@@ -16,6 +16,8 @@ pipeline {
         checkout scm
         script {
           env.GIT_COMMIT_SHORT = sh(script: "git rev-parse --short HEAD", returnStdout: true).trim()
+          env.GIT_BRANCH_NAME  = sh(script: "git rev-parse --abbrev-ref HEAD", returnStdout: true).trim()
+          echo "Branch = ${env.GIT_BRANCH_NAME} | Commit = ${env.GIT_COMMIT_SHORT}"
         }
       }
     }
@@ -132,8 +134,12 @@ pipeline {
     stage('🐳 Build Docker Images') {
       steps {
         sh '''
+          set -e
           docker build -t ${IMAGE_NAME}-backend:${GIT_COMMIT_SHORT} ./backend
           docker build -t ${IMAGE_NAME}-frontend:${GIT_COMMIT_SHORT} ./frontend
+
+          docker tag ${IMAGE_NAME}-backend:${GIT_COMMIT_SHORT}  ${IMAGE_NAME}-backend:latest
+          docker tag ${IMAGE_NAME}-frontend:${GIT_COMMIT_SHORT} ${IMAGE_NAME}-frontend:latest
         '''
       }
     }
@@ -144,10 +150,6 @@ pipeline {
           set +e
           mkdir -p "${WORKSPACE}/trivy-reports"
 
-          echo "=== Docker images (verify tags exist) ==="
-          docker images | grep ${IMAGE_NAME} || true
-
-          echo "=== Trivy backend scan (stdout -> file) ==="
           docker run --rm \
             -v /var/run/docker.sock:/var/run/docker.sock \
             aquasec/trivy:latest image \
@@ -155,9 +157,7 @@ pipeline {
             --format json \
             ${IMAGE_NAME}-backend:${GIT_COMMIT_SHORT} \
             > "${WORKSPACE}/trivy-reports/trivy-backend.json"
-          echo "Trivy backend exit code=$?"
 
-          echo "=== Trivy frontend scan (stdout -> file) ==="
           docker run --rm \
             -v /var/run/docker.sock:/var/run/docker.sock \
             aquasec/trivy:latest image \
@@ -165,7 +165,6 @@ pipeline {
             --format json \
             ${IMAGE_NAME}-frontend:${GIT_COMMIT_SHORT} \
             > "${WORKSPACE}/trivy-reports/trivy-frontend.json"
-          echo "Trivy frontend exit code=$?"
 
           ls -la "${WORKSPACE}/trivy-reports" || true
         '''
@@ -174,7 +173,12 @@ pipeline {
     }
 
     stage('📤 Push to DockerHub') {
-      when { branch 'main' }
+      when {
+        anyOf {
+          branch 'main'
+          branch 'master'
+        }
+      }
       steps {
         withCredentials([usernamePassword(
           credentialsId: 'dockerhub-creds',
@@ -183,6 +187,7 @@ pipeline {
         )]) {
           sh '''
             set -e
+            echo "Pushing as DOCKER_USER=$DOCKER_USER"
             echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
 
             docker tag ${IMAGE_NAME}-backend:${GIT_COMMIT_SHORT}  $DOCKER_USER/${IMAGE_NAME}-backend:${GIT_COMMIT_SHORT}
@@ -202,9 +207,15 @@ pipeline {
     }
 
     stage('🏭 Deploy to Production') {
-      when { branch 'main' }
+      when {
+        anyOf {
+          branch 'main'
+          branch 'master'
+        }
+      }
       steps {
         input message: 'Deploy to Production?', ok: 'Deploy'
+
         withCredentials([usernamePassword(
           credentialsId: 'dockerhub-creds',
           usernameVariable: 'DOCKER_USER',
@@ -212,13 +223,14 @@ pipeline {
         )]) {
           sh '''
             set -e
+            echo "Deploying as DOCKER_USER=$DOCKER_USER"
             echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
 
             export DOCKER_USER="$DOCKER_USER"
             export TAG=latest
 
             docker compose -f docker-compose.yml -f docker-compose.prod.yml pull
-            docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+            docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --no-build
             docker compose -f docker-compose.yml -f docker-compose.prod.yml ps
           '''
         }
