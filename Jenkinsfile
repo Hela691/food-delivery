@@ -20,25 +20,6 @@ pipeline {
       }
     }
 
-    stage('📂 Inspect Workspace (Debug)') {
-      steps {
-        sh '''
-          echo "=== WHERE AM I ==="
-          pwd
-          echo "=== LIST ROOT ==="
-          ls -la
-          echo "=== LIST BACKEND ==="
-          ls -la backend || true
-          echo "=== CHECK backend/package.json ==="
-          ls -la backend/package.json || true
-          echo "=== LIST FRONTEND ==="
-          ls -la frontend || true
-          echo "=== FIND package.json (depth 3) ==="
-          find . -maxdepth 3 -type f -name package.json -print
-        '''
-      }
-    }
-
     stage('📦 Install Dependencies') {
       parallel {
 
@@ -75,7 +56,7 @@ pipeline {
       }
     }
 
-    stage('🛡️ Dependency Check') {
+    stage('🛡️ Dependency Check (npm audit)') {
       parallel {
 
         stage('Backend Audit') {
@@ -127,7 +108,7 @@ pipeline {
           --out ${WORKSPACE}/dependency-check
         """, odcInstallation: 'OWASP-DC'
 
-        // Debug: verify report location
+        // (optionnel) debug
         sh '''
           echo "=== DC output folder ==="
           ls -la dependency-check || true
@@ -135,7 +116,6 @@ pipeline {
           find . -maxdepth 6 -type f -name "dependency-check-report.json" -print || true
         '''
 
-        // Flexible pattern (avoids "Unable to find reports to parse")
         dependencyCheckPublisher pattern: '**/dependency-check-report.json'
         archiveArtifacts artifacts: 'dependency-check/*', allowEmptyArchive: true
       }
@@ -192,6 +172,36 @@ pipeline {
           docker build -t ${IMAGE_NAME}-backend:${GIT_COMMIT_SHORT} ./backend
           docker build -t ${IMAGE_NAME}-frontend:${GIT_COMMIT_SHORT} ./frontend
         '''
+      }
+    }
+
+    stage('🔒 Container Security Scan (Trivy)') {
+      steps {
+        sh '''
+          set -e
+          mkdir -p trivy-reports
+
+          # Scan Backend image (local)
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "$(pwd)/trivy-reports:/reports" \
+            aquasec/trivy:latest image \
+            --severity HIGH,CRITICAL \
+            --format json \
+            --output /reports/trivy-backend.json \
+            ${IMAGE_NAME}-backend:${GIT_COMMIT_SHORT} || true
+
+          # Scan Frontend image (local)
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "$(pwd)/trivy-reports:/reports" \
+            aquasec/trivy:latest image \
+            --severity HIGH,CRITICAL \
+            --format json \
+            --output /reports/trivy-frontend.json \
+            ${IMAGE_NAME}-frontend:${GIT_COMMIT_SHORT} || true
+        '''
+        archiveArtifacts artifacts: 'trivy-reports/trivy-*.json', allowEmptyArchive: true
       }
     }
 
