@@ -97,10 +97,10 @@ pipeline {
 
     stage('🐳 Build Docker Images') {
       steps {
-        script {
-          docker.build("${IMAGE_NAME}-backend:${GIT_COMMIT_SHORT}", "./backend")
-          docker.build("${IMAGE_NAME}-frontend:${GIT_COMMIT_SHORT}", "./frontend")
-        }
+        sh '''
+         docker build -t ${IMAGE_NAME}-backend:${GIT_COMMIT_SHORT} ./backend
+         docker build -t ${IMAGE_NAME}-frontend:${GIT_COMMIT_SHORT} ./frontend
+        '''
       }
     }
 
