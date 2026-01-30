@@ -5,7 +5,6 @@ pipeline {
     IMAGE_NAME        = 'food-delivery'
     SONAR_HOST_URL    = 'http://food-sonarqube:9000'
     SONAR_PROJECT_KEY = 'food-delivery'
-    SONAR_TOKEN       = credentials('sonar-token')
     DOCKER_NET        = 'food-delivery_food-network'
   }
 
@@ -78,28 +77,54 @@ pipeline {
 
     stage('🔐 SAST - SonarQube Analysis') {
       steps {
-        sh '''
-          docker run --rm \
-            --network ${DOCKER_NET} \
-            --volumes-from jenkins \
-            -w /var/jenkins_home/workspace/${JOB_NAME} \
-            sonarsource/sonar-scanner-cli \
-            -Dsonar.host.url=${SONAR_HOST_URL} \
-            -Dsonar.login=${SONAR_TOKEN} \
-            -Dsonar.projectKey=${SONAR_PROJECT_KEY} \
-            -Dsonar.sources=backend,frontend/src \
-            -Dsonar.exclusions=**/node_modules/**,**/dist/**,**/coverage/** \
-            -Dsonar.qualitygate.wait=false
-       '''
+        withCredentials([string(credentialsId: 'sonar-token', variable: 'SONAR_TOKEN')]) {
+          sh '''
+            docker run --rm \
+              --network ${DOCKER_NET} \
+              --volumes-from jenkins \
+              -w /var/jenkins_home/workspace/${JOB_NAME} \
+              sonarsource/sonar-scanner-cli \
+              -Dsonar.host.url=${SONAR_HOST_URL} \
+              -Dsonar.login=${SONAR_TOKEN} \
+              -Dsonar.projectKey=${SONAR_PROJECT_KEY} \
+              -Dsonar.sources=backend,frontend/src \
+              -Dsonar.exclusions=**/node_modules/**,**/dist/**,**/coverage/** \
+              -Dsonar.qualitygate.wait=false
+          '''
+        }
       }
     }
 
+    stage('📊 Sonar Report (soft gate)') {
+      steps {
+        withCredentials([string(credentialsId: 'sonar-token', variable: 'SONAR_TOKEN')]) {
+          sh '''
+            echo "=== SonarQube Quality Gate status (soft gate) ==="
+
+            curl -s -u "${SONAR_TOKEN}:" \
+              "${SONAR_HOST_URL}/api/qualitygates/project_status?projectKey=${SONAR_PROJECT_KEY}" \
+              | tee sonar-qg.json
+
+            if grep -q '"status":"ERROR"' sonar-qg.json; then
+              echo ""
+              echo "⚠️ QUALITY GATE = FAILED (mais on ne bloque pas le pipeline)"
+              echo "➡️ Causes typiques : coverage=0%, vulnérabilités, hotspots non revus..."
+              echo "➡️ Voir dashboard Sonar : ${SONAR_HOST_URL}/dashboard?id=${SONAR_PROJECT_KEY}"
+              echo ""
+            else
+              echo "✅ QUALITY GATE = OK"
+            fi
+          '''
+        }
+        archiveArtifacts artifacts: 'sonar-qg.json', allowEmptyArchive: false
+      }
+    }
 
     stage('🐳 Build Docker Images') {
       steps {
         sh '''
-         docker build -t ${IMAGE_NAME}-backend:${GIT_COMMIT_SHORT} ./backend
-         docker build -t ${IMAGE_NAME}-frontend:${GIT_COMMIT_SHORT} ./frontend
+          docker build -t ${IMAGE_NAME}-backend:${GIT_COMMIT_SHORT} ./backend
+          docker build -t ${IMAGE_NAME}-frontend:${GIT_COMMIT_SHORT} ./frontend
         '''
       }
     }
