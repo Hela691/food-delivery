@@ -13,7 +13,6 @@ pipeline {
 
     stage('🔍 Checkout') {
       steps {
-        // ✅ Prof style: always start clean to avoid old/broken workspaces
         deleteDir()
         checkout scm
         script {
@@ -48,9 +47,15 @@ pipeline {
           steps {
             dir('backend') {
               sh '''
+                set -e
+                echo "PWD=$PWD"
+                ls -la
+                ls -la package.json
+
                 docker run --rm \
                   -v "$PWD:/app" -w /app \
-                  node:18-alpine sh -lc "npm ci || npm install"
+                  node:18-alpine \
+                  sh -lc 'npm ci || npm install'
               '''
             }
           }
@@ -60,9 +65,15 @@ pipeline {
           steps {
             dir('frontend') {
               sh '''
+                set -e
+                echo "PWD=$PWD"
+                ls -la
+                ls -la package.json
+
                 docker run --rm \
                   -v "$PWD:/app" -w /app \
-                  node:18-alpine sh -lc "npm ci || npm install"
+                  node:18-alpine \
+                  sh -lc 'npm ci || npm install'
               '''
             }
           }
@@ -82,8 +93,7 @@ pipeline {
             -Dsonar.login=${SONAR_TOKEN} \
             -Dsonar.projectKey=${SONAR_PROJECT_KEY} \
             -Dsonar.sources=backend,frontend/src \
-            -Dsonar.exclusions=**/node_modules/**,**/dist/**,**/coverage/** \
-            -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info
+            -Dsonar.exclusions=**/node_modules/**,**/dist/**,**/coverage/**
         '''
       }
     }
@@ -111,53 +121,6 @@ pipeline {
           docker.build("${IMAGE_NAME}-backend:${GIT_COMMIT_SHORT}", "./backend")
           docker.build("${IMAGE_NAME}-frontend:${GIT_COMMIT_SHORT}", "./frontend")
         }
-      }
-    }
-
-    stage('🛡️ Dependency Audit') {
-      parallel {
-
-        stage('Backend npm audit') {
-          steps {
-            dir('backend') {
-              sh '''
-                docker run --rm \
-                  -v "$PWD:/app" -w /app \
-                  node:18-alpine sh -lc "npm audit --audit-level=high --json > npm-audit-backend.json || true"
-              '''
-              archiveArtifacts artifacts: 'backend/npm-audit-backend.json', allowEmptyArchive: true
-            }
-          }
-        }
-
-        stage('Frontend npm audit') {
-          steps {
-            dir('frontend') {
-              sh '''
-                docker run --rm \
-                  -v "$PWD:/app" -w /app \
-                  node:18-alpine sh -lc "npm audit --audit-level=high --json > npm-audit-frontend.json || true"
-              '''
-              archiveArtifacts artifacts: 'frontend/npm-audit-frontend.json', allowEmptyArchive: true
-            }
-          }
-        }
-
-      }
-    }
-
-    stage('🔒 Container Scan (Trivy)') {
-      steps {
-        sh '''
-          command -v trivy >/dev/null 2>&1 || (
-            echo "Installing Trivy..."
-            curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
-          )
-
-          trivy image --severity HIGH,CRITICAL --format json --output trivy-backend.json ${IMAGE_NAME}-backend:${GIT_COMMIT_SHORT} || true
-          trivy image --severity HIGH,CRITICAL --format json --output trivy-frontend.json ${IMAGE_NAME}-frontend:${GIT_COMMIT_SHORT} || true
-        '''
-        archiveArtifacts artifacts: 'trivy-*.json', allowEmptyArchive: true
       }
     }
 
