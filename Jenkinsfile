@@ -113,6 +113,23 @@ pipeline {
       }
     }
 
+    stage('🛡️ OWASP Dependency-Check') {
+      steps {
+        dependencyCheck additionalArguments: '''
+          --scan .
+          --exclude **/node_modules/**
+          --exclude **/dist/**
+          --format HTML
+          --format JSON
+          --prettyPrint
+          --out dependency-check
+        ''', odcInstallation: 'OWASP-DC'
+
+        dependencyCheckPublisher pattern: 'dependency-check/dependency-check-report.json'
+        archiveArtifacts artifacts: 'dependency-check/*', allowEmptyArchive: true
+      }
+    }
+
     stage('🔐 SAST - SonarQube Analysis') {
       steps {
         withCredentials([string(credentialsId: 'sonar-token', variable: 'SONAR_TOKEN')]) {
