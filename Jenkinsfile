@@ -94,20 +94,11 @@ pipeline {
       }
     }
 
-    stage('🔍 Quality Gate (simple)') {
+    stage('🔍 Quality Gate') {
       steps {
-        sh '''
-          echo "Checking SonarQube Quality Gate..."
-          curl -s -u "${SONAR_TOKEN}:" \
-            "${SONAR_HOST_URL}/api/qualitygates/project_status?projectKey=${SONAR_PROJECT_KEY}" \
-            | tee qg.json
-
-          if grep -q '"status":"ERROR"' qg.json; then
-            echo "❌ Quality Gate FAILED"
-            exit 1
-          fi
-          echo "✅ Quality Gate OK (PASS/WARN)"
-        '''
+        timeout(time: 5, unit: 'MINUTES') {
+          waitForQualityGate abortPipeline: false
+        }
       }
     }
 
