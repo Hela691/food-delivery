@@ -22,37 +22,24 @@ pipeline {
 
     stage('📦 Install Dependencies') {
       parallel {
-
         stage('Backend') {
           steps {
             sh '''
               set -e
               WS="/var/jenkins_home/workspace/${JOB_NAME}/backend"
-
-              docker run --rm \
-                --volumes-from jenkins \
-                -w "$WS" \
-                node:18-alpine \
-                sh -lc "(npm ci || npm install)"
+              docker run --rm --volumes-from jenkins -w "$WS" node:18-alpine sh -lc "(npm ci || npm install)"
             '''
           }
         }
-
         stage('Frontend') {
           steps {
             sh '''
               set -e
               WS="/var/jenkins_home/workspace/${JOB_NAME}/frontend"
-
-              docker run --rm \
-                --volumes-from jenkins \
-                -w "$WS" \
-                node:18-alpine \
-                sh -lc "(npm ci || npm install)"
+              docker run --rm --volumes-from jenkins -w "$WS" node:18-alpine sh -lc "(npm ci || npm install)"
             '''
           }
         }
-
       }
     }
 
@@ -64,11 +51,7 @@ pipeline {
             sh '''
               set -e
               WS="/var/jenkins_home/workspace/${JOB_NAME}/backend"
-
-              docker run --rm \
-                --volumes-from jenkins \
-                -w "$WS" \
-                node:18-alpine \
+              docker run --rm --volumes-from jenkins -w "$WS" node:18-alpine \
                 sh -lc "npm audit --audit-level=high --json > /var/jenkins_home/workspace/${JOB_NAME}/npm-audit-backend.json || true"
             '''
             archiveArtifacts artifacts: 'npm-audit-backend.json', allowEmptyArchive: false
@@ -80,11 +63,7 @@ pipeline {
             sh '''
               set -e
               WS="/var/jenkins_home/workspace/${JOB_NAME}/frontend"
-
-              docker run --rm \
-                --volumes-from jenkins \
-                -w "$WS" \
-                node:18-alpine \
+              docker run --rm --volumes-from jenkins -w "$WS" node:18-alpine \
                 sh -lc "npm audit --audit-level=high --json > /var/jenkins_home/workspace/${JOB_NAME}/npm-audit-frontend.json || true"
             '''
             archiveArtifacts artifacts: 'npm-audit-frontend.json', allowEmptyArchive: false
@@ -164,39 +143,48 @@ pipeline {
     stage('🔒 Container Security Scan (Trivy)') {
       steps {
         sh '''
-          set -e
+          set +e
           mkdir -p "${WORKSPACE}/trivy-reports"
+          chmod -R 777 "${WORKSPACE}/trivy-reports"
+
+          echo "=== whoami / ids ==="
+          id || true
+          echo "WORKSPACE=${WORKSPACE}"
 
           echo "=== Docker images (verify tags exist) ==="
           docker images | grep ${IMAGE_NAME} || true
 
-          # Scan Backend image (local)
+          echo "=== Trivy backend scan ==="
           docker run --rm \
+            --user "$(id -u):$(id -g)" \
             -v /var/run/docker.sock:/var/run/docker.sock \
             -v "${WORKSPACE}/trivy-reports:/reports" \
             aquasec/trivy:latest image \
             --severity HIGH,CRITICAL \
             --format json \
             --output /reports/trivy-backend.json \
-            ${IMAGE_NAME}-backend:${GIT_COMMIT_SHORT} || true
+            ${IMAGE_NAME}-backend:${GIT_COMMIT_SHORT}
+          echo "Trivy backend exit code=$?"
 
-          # Scan Frontend image (local)
+          echo "=== Trivy frontend scan ==="
           docker run --rm \
+            --user "$(id -u):$(id -g)" \
             -v /var/run/docker.sock:/var/run/docker.sock \
             -v "${WORKSPACE}/trivy-reports:/reports" \
             aquasec/trivy:latest image \
             --severity HIGH,CRITICAL \
             --format json \
             --output /reports/trivy-frontend.json \
-            ${IMAGE_NAME}-frontend:${GIT_COMMIT_SHORT} || true
+            ${IMAGE_NAME}-frontend:${GIT_COMMIT_SHORT}
+          echo "Trivy frontend exit code=$?"
 
           echo "=== Trivy reports folder ==="
           ls -la "${WORKSPACE}/trivy-reports" || true
 
           echo "=== Find generated Trivy JSON ==="
-          find "${WORKSPACE}" -maxdepth 3 -type f -name "trivy-*.json" -print || true
+          find "${WORKSPACE}" -maxdepth 4 -type f -name "trivy-*.json" -print || true
         '''
-        archiveArtifacts artifacts: '**/trivy-reports/trivy-*.json', allowEmptyArchive: true
+        archiveArtifacts artifacts: 'trivy-reports/trivy-*.json', allowEmptyArchive: true
       }
     }
 
