@@ -1,0 +1,8 @@
+services:
+  backend:
+    image: ${DOCKER_USER}/food-delivery-backend:${TAG}
+    build: null
+
+  frontend:
+    image: ${DOCKER_USER}/food-delivery-frontend:${TAG}
+    build: null

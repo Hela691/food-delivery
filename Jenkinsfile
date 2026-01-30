@@ -167,14 +167,61 @@ pipeline {
             > "${WORKSPACE}/trivy-reports/trivy-frontend.json"
           echo "Trivy frontend exit code=$?"
 
-          echo "=== Trivy reports folder ==="
           ls -la "${WORKSPACE}/trivy-reports" || true
-
-          echo "=== Show first 3 lines of reports ==="
-          head -n 3 "${WORKSPACE}/trivy-reports/trivy-backend.json" || true
-          head -n 3 "${WORKSPACE}/trivy-reports/trivy-frontend.json" || true
         '''
         archiveArtifacts artifacts: 'trivy-reports/*.json', allowEmptyArchive: false
+      }
+    }
+
+    stage('📤 Push to DockerHub') {
+      when { branch 'main' }
+      steps {
+        withCredentials([usernamePassword(
+          credentialsId: 'dockerhub-creds',
+          usernameVariable: 'DOCKER_USER',
+          passwordVariable: 'DOCKER_PASS'
+        )]) {
+          sh '''
+            set -e
+            echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
+
+            docker tag ${IMAGE_NAME}-backend:${GIT_COMMIT_SHORT}  $DOCKER_USER/${IMAGE_NAME}-backend:${GIT_COMMIT_SHORT}
+            docker tag ${IMAGE_NAME}-frontend:${GIT_COMMIT_SHORT} $DOCKER_USER/${IMAGE_NAME}-frontend:${GIT_COMMIT_SHORT}
+
+            docker tag ${IMAGE_NAME}-backend:${GIT_COMMIT_SHORT}  $DOCKER_USER/${IMAGE_NAME}-backend:latest
+            docker tag ${IMAGE_NAME}-frontend:${GIT_COMMIT_SHORT} $DOCKER_USER/${IMAGE_NAME}-frontend:latest
+
+            docker push $DOCKER_USER/${IMAGE_NAME}-backend:${GIT_COMMIT_SHORT}
+            docker push $DOCKER_USER/${IMAGE_NAME}-frontend:${GIT_COMMIT_SHORT}
+
+            docker push $DOCKER_USER/${IMAGE_NAME}-backend:latest
+            docker push $DOCKER_USER/${IMAGE_NAME}-frontend:latest
+          '''
+        }
+      }
+    }
+
+    stage('🏭 Deploy to Production') {
+      when { branch 'main' }
+      steps {
+        input message: 'Deploy to Production?', ok: 'Deploy'
+        withCredentials([usernamePassword(
+          credentialsId: 'dockerhub-creds',
+          usernameVariable: 'DOCKER_USER',
+          passwordVariable: 'DOCKER_PASS'
+        )]) {
+          sh '''
+            set -e
+            echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
+
+            export DOCKER_USER="$DOCKER_USER"
+            export TAG=latest
+
+            docker compose -f docker-compose.yml -f docker-compose.prod.yml pull
+            docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+            docker compose -f docker-compose.yml -f docker-compose.prod.yml ps
+          '''
+        }
       }
     }
 
