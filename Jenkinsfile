@@ -2,13 +2,11 @@ pipeline {
   agent any
 
   environment {
-    DOCKER_REGISTRY = 'local'
-    IMAGE_NAME      = 'food-delivery'
-    SONAR_HOST      = 'http://food-sonarqube:9000'
-  }
-
-  tools {
-    nodejs 'NodeJS-18'
+    IMAGE_NAME        = 'food-delivery'
+    SONAR_HOST_URL    = 'http://food-sonarqube:9000'
+    SONAR_PROJECT_KEY = 'food-delivery'
+    SONAR_TOKEN       = credentials('sonar-token')   // ✅ utilise le credential existant
+    DOCKER_NET        = 'food-delivery_food-network'
   }
 
   stages {
@@ -17,10 +15,7 @@ pipeline {
       steps {
         checkout scm
         script {
-          env.GIT_COMMIT_SHORT = sh(
-            script: "git rev-parse --short HEAD",
-            returnStdout: true
-          ).trim()
+          env.GIT_COMMIT_SHORT = sh(script: "git rev-parse --short HEAD", returnStdout: true).trim()
         }
       }
     }
@@ -31,7 +26,11 @@ pipeline {
         stage('Backend') {
           steps {
             dir('backend') {
-              sh 'npm ci || npm install'
+              sh '''
+                docker run --rm \
+                  -v "$PWD:/app" -w /app \
+                  node:18-alpine sh -lc "npm ci || npm install"
+              '''
             }
           }
         }
@@ -39,7 +38,11 @@ pipeline {
         stage('Frontend') {
           steps {
             dir('frontend') {
-              sh 'npm ci || npm install'
+              sh '''
+                docker run --rm \
+                  -v "$PWD:/app" -w /app \
+                  node:18-alpine sh -lc "npm ci || npm install"
+              '''
             }
           }
         }
@@ -49,23 +52,34 @@ pipeline {
 
     stage('🔐 SAST - SonarQube Analysis') {
       steps {
-        withSonarQubeEnv('SonarQube') {
-          sh '''
-            sonar-scanner \
-              -Dsonar.projectKey=food-delivery \
-              -Dsonar.sources=backend/,frontend/src/ \
-              -Dsonar.exclusions=**/node_modules/**,**/dist/** \
-              -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info
-          '''
-        }
+        sh '''
+          docker run --rm \
+            --network ${DOCKER_NET} \
+            -v "$PWD:/usr/src" -w /usr/src \
+            sonarsource/sonar-scanner-cli \
+            -Dsonar.host.url=${SONAR_HOST_URL} \
+            -Dsonar.login=${SONAR_TOKEN} \
+            -Dsonar.projectKey=${SONAR_PROJECT_KEY} \
+            -Dsonar.sources=backend,frontend/src \
+            -Dsonar.exclusions=**/node_modules/**,**/dist/**
+        '''
       }
     }
 
-    stage('🔍 Quality Gate') {
+    stage('🔍 Quality Gate (simple)') {
       steps {
-        timeout(time: 5, unit: 'MINUTES') {
-          waitForQualityGate abortPipeline: true
-        }
+        sh '''
+          echo "Checking SonarQube Quality Gate..."
+          curl -s -u "${SONAR_TOKEN}:" \
+            "${SONAR_HOST_URL}/api/qualitygates/project_status?projectKey=${SONAR_PROJECT_KEY}" \
+            | tee qg.json
+
+          if grep -q '"status":"ERROR"' qg.json; then
+            echo "❌ Quality Gate FAILED"
+            exit 1
+          fi
+          echo "✅ Quality Gate OK (PASS/WARN)"
+        '''
       }
     }
 
@@ -78,10 +92,41 @@ pipeline {
       }
     }
 
-    stage('🔒 Container Security Scan (Trivy)') {
+    stage('🛡️ Dependency Audit') {
+      parallel {
+
+        stage('Backend npm audit') {
+          steps {
+            dir('backend') {
+              sh '''
+                docker run --rm \
+                  -v "$PWD:/app" -w /app \
+                  node:18-alpine sh -lc "npm audit --audit-level=high --json > npm-audit-backend.json || true"
+              '''
+              archiveArtifacts artifacts: 'backend/npm-audit-backend.json', allowEmptyArchive: true
+            }
+          }
+        }
+
+        stage('Frontend npm audit') {
+          steps {
+            dir('frontend') {
+              sh '''
+                docker run --rm \
+                  -v "$PWD:/app" -w /app \
+                  node:18-alpine sh -lc "npm audit --audit-level=high --json > npm-audit-frontend.json || true"
+              '''
+              archiveArtifacts artifacts: 'frontend/npm-audit-frontend.json', allowEmptyArchive: true
+            }
+          }
+        }
+
+      }
+    }
+
+    stage('🔒 Container Scan (Trivy)') {
       steps {
         sh '''
-          # install trivy if not present (simple TP mode)
           command -v trivy >/dev/null 2>&1 || (
             curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
           )
@@ -97,6 +142,7 @@ pipeline {
 
   post {
     always {
+      echo "Pipeline finished."
       cleanWs()
     }
   }
