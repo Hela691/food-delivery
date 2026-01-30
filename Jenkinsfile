@@ -45,37 +45,31 @@ pipeline {
 
         stage('Backend') {
           steps {
-            dir('backend') {
-              sh '''
-                set -e
-                echo "PWD=$PWD"
-                ls -la
-                ls -la package.json
+            sh '''
+              set -e
+              WS="/var/jenkins_home/workspace/${JOB_NAME}/backend"
 
-                docker run --rm \
-                  -v "$PWD:/app" -w /app \
-                  node:18-alpine \
-                  sh -lc 'npm ci || npm install'
-              '''
-            }
+              docker run --rm \
+                --volumes-from jenkins \
+                -w "$WS" \
+                node:18-alpine \
+                sh -lc "ls -la && ls -la package.json && (npm ci || npm install)"
+            '''
           }
         }
 
         stage('Frontend') {
           steps {
-            dir('frontend') {
-              sh '''
-                set -e
-                echo "PWD=$PWD"
-                ls -la
-                ls -la package.json
+            sh '''
+              set -e
+              WS="/var/jenkins_home/workspace/${JOB_NAME}/frontend"
 
-                docker run --rm \
-                  -v "$PWD:/app" -w /app \
-                  node:18-alpine \
-                  sh -lc 'npm ci || npm install'
-              '''
-            }
+              docker run --rm \
+                --volumes-from jenkins \
+                -w "$WS" \
+                node:18-alpine \
+                sh -lc "ls -la && ls -la package.json && (npm ci || npm install)"
+            '''
           }
         }
 
@@ -87,7 +81,8 @@ pipeline {
         sh '''
           docker run --rm \
             --network ${DOCKER_NET} \
-            -v "$PWD:/usr/src" -w /usr/src \
+            --volumes-from jenkins \
+            -w /var/jenkins_home/workspace/${JOB_NAME} \
             sonarsource/sonar-scanner-cli \
             -Dsonar.host.url=${SONAR_HOST_URL} \
             -Dsonar.login=${SONAR_TOKEN} \
