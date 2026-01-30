@@ -108,14 +108,6 @@ pipeline {
           --out ${WORKSPACE}/dependency-check
         """, odcInstallation: 'OWASP-DC'
 
-        // (optionnel) debug
-        sh '''
-          echo "=== DC output folder ==="
-          ls -la dependency-check || true
-          echo "=== Find DC JSON report ==="
-          find . -maxdepth 6 -type f -name "dependency-check-report.json" -print || true
-        '''
-
         dependencyCheckPublisher pattern: '**/dependency-check-report.json'
         archiveArtifacts artifacts: 'dependency-check/*', allowEmptyArchive: true
       }
@@ -181,9 +173,8 @@ pipeline {
           set -e
           mkdir -p trivy-reports
 
-          # Ensure empty files exist (avoid archive error)
-          echo "{}" > trivy-reports/trivy-backend.json
-          echo "{}" > trivy-reports/trivy-frontend.json
+          echo "=== Docker images (verify tags exist) ==="
+          docker images | grep ${IMAGE_NAME} || true
 
           # Scan Backend image (local)
           docker run --rm \
@@ -208,7 +199,7 @@ pipeline {
           echo "=== Trivy reports ==="
           ls -la trivy-reports
         '''
-        archiveArtifacts artifacts: 'trivy-reports/trivy-*.json', allowEmptyArchive: true
+        archiveArtifacts artifacts: 'trivy-reports/*.json', allowEmptyArchive: true
       }
     }
 
