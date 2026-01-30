@@ -17,6 +17,7 @@ services:
       retries: 3
 
   backend:
+    image: food-delivery-backend:dev
     build:
       context: ./backend
       dockerfile: Dockerfile
@@ -39,6 +40,7 @@ services:
       retries: 3
 
   frontend:
+    image: food-delivery-frontend:dev
     build:
       context: ./frontend
       dockerfile: Dockerfile
