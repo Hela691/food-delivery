@@ -115,17 +115,28 @@ pipeline {
 
     stage('🛡️ OWASP Dependency-Check') {
       steps {
-        dependencyCheck additionalArguments: '''
-          --scan .
+        sh 'mkdir -p dependency-check'
+
+        dependencyCheck additionalArguments: """
+          --scan ${WORKSPACE}
           --exclude **/node_modules/**
           --exclude **/dist/**
           --format HTML
           --format JSON
           --prettyPrint
-          --out dependency-check
-        ''', odcInstallation: 'OWASP-DC'
+          --out ${WORKSPACE}/dependency-check
+        """, odcInstallation: 'OWASP-DC'
 
-        dependencyCheckPublisher pattern: 'dependency-check/dependency-check-report.json'
+        // Debug: verify report location
+        sh '''
+          echo "=== DC output folder ==="
+          ls -la dependency-check || true
+          echo "=== Find DC JSON report ==="
+          find . -maxdepth 6 -type f -name "dependency-check-report.json" -print || true
+        '''
+
+        // Flexible pattern (avoids "Unable to find reports to parse")
+        dependencyCheckPublisher pattern: '**/dependency-check-report.json'
         archiveArtifacts artifacts: 'dependency-check/*', allowEmptyArchive: true
       }
     }
