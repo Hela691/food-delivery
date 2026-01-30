@@ -5,7 +5,7 @@ pipeline {
     IMAGE_NAME        = 'food-delivery'
     SONAR_HOST_URL    = 'http://food-sonarqube:9000'
     SONAR_PROJECT_KEY = 'food-delivery'
-    SONAR_TOKEN       = credentials('sonar-token')   // ✅ utilise le credential existant
+    SONAR_TOKEN       = credentials('sonar-token')
     DOCKER_NET        = 'food-delivery_food-network'
   }
 
@@ -13,10 +13,31 @@ pipeline {
 
     stage('🔍 Checkout') {
       steps {
+        // ✅ Prof style: always start clean to avoid old/broken workspaces
+        deleteDir()
         checkout scm
         script {
           env.GIT_COMMIT_SHORT = sh(script: "git rev-parse --short HEAD", returnStdout: true).trim()
         }
+      }
+    }
+
+    stage('📂 Inspect Workspace (Debug)') {
+      steps {
+        sh '''
+          echo "=== WHERE AM I ==="
+          pwd
+          echo "=== LIST ROOT ==="
+          ls -la
+          echo "=== LIST BACKEND ==="
+          ls -la backend || true
+          echo "=== CHECK backend/package.json ==="
+          ls -la backend/package.json || true
+          echo "=== LIST FRONTEND ==="
+          ls -la frontend || true
+          echo "=== FIND package.json (depth 3) ==="
+          find . -maxdepth 3 -type f -name package.json -print
+        '''
       }
     }
 
@@ -61,7 +82,8 @@ pipeline {
             -Dsonar.login=${SONAR_TOKEN} \
             -Dsonar.projectKey=${SONAR_PROJECT_KEY} \
             -Dsonar.sources=backend,frontend/src \
-            -Dsonar.exclusions=**/node_modules/**,**/dist/**
+            -Dsonar.exclusions=**/node_modules/**,**/dist/**,**/coverage/** \
+            -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info
         '''
       }
     }
@@ -128,6 +150,7 @@ pipeline {
       steps {
         sh '''
           command -v trivy >/dev/null 2>&1 || (
+            echo "Installing Trivy..."
             curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
           )
 
