@@ -28,7 +28,7 @@ pipeline {
           steps {
            dir('backend') {
             sh '''
-              docker run --rm -v "$PWD/backend:/app" -w /app node:18-alpine \
+              docker run --rm -v "$PWD:/app" -w /app node:18-alpine \
                 sh -lc "npm install"
             '''
            }
@@ -38,7 +38,7 @@ pipeline {
           steps {
            dir('frontend') {
             sh '''
-              docker run --rm -v "$PWD/frontend:/app" -w /app node:18-alpine \
+              docker run --rm -v "$PWD:/app" -w /app node:18-alpine \
                 sh -lc "npm install"
             '''
            }
@@ -83,7 +83,7 @@ pipeline {
         stage('Backend Audit') {
           steps {
             sh '''
-              docker run --rm -v "$PWD/backend:/app" -w /app node:18-alpine \
+              docker run --rm -v "$PWD:/app" -w /app node:18-alpine \
                 sh -lc "npm audit --audit-level=high --json > npm-audit-backend.json || true"
             '''
             archiveArtifacts artifacts: 'backend/npm-audit-backend.json', allowEmptyArchive: true
@@ -92,7 +92,7 @@ pipeline {
         stage('Frontend Audit') {
           steps {
             sh '''
-              docker run --rm -v "$PWD/frontend:/app" -w /app node:18-alpine \
+              docker run --rm -v "$PWD:/app" -w /app node:18-alpine \
                 sh -lc "npm audit --audit-level=high --json > npm-audit-frontend.json || true"
             '''
             archiveArtifacts artifacts: 'frontend/npm-audit-frontend.json', allowEmptyArchive: true
